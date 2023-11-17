@@ -94,37 +94,81 @@ Image& Image::grayscale_lum(){
   return *this;
 }
 
-Image& Image::red(){
-  for(int i = 0; i < size; i+=channels){
-    int r = data[i];
-    int g = 0;
-    int b = 0;
-    memset(data+i, r, 1);
-    memset(data+i+1, g, 1);
-    memset(data+i+2, b, 1);
+Image& Image::colorMask(float r, float g, float b){
+  if(channels < 3){
+    printf("\e[31m[ERROR] color maskr requires at least 3 channels, but this image has %d channels \e[0m\n", channels);
   }
-  return *this;
-}
-
-// Continuar depois
-Image& Image::sharp(){
-  for(int i = 0; i < w; i++){
-    int y = i*w;
-    for(int j = 0; j < h; j++){
-      int x = j*h;
-      int pixel = y+x;
-      int r = data[i];
-      int g = 0;
-      int b = 0;
-      memset(data+i, r, 1);
-      memset(data+i+1, g, 1);
-      memset(data+i+2, b, 1);
+  else{
+    for(int i = 0; i < size; i+=channels){
+      data[i] *= r;
+      data[i+1] *= g;
+      data[i+2] *= b;
     }
   }
   return *this;
 }
 
 
+Image& Image::sharp(){
+  if(channels < 3){
+    printf("\e[31m[ERROR] color maskr requires at least 3 channels, but this image has %d channels \e[0m\n", channels);
+  }
+  else{
+    int i = 0;
+    for(int y = 0; y < h; y++){
+      for(int x = 0; x < w; x++){
+        if(y < 100){
+          int red = data[i];
+          int green = data[i+i];
+          int blue = data[i+2];
+          red += data[i+channels];
+          green += data[i+channels+1];
+          blue += data[i+channels+2];
+          data[i] = red/2;
+          data[i+1] = green/2;
+          data[i+2] = blue/2;
+        }
+        i+=channels;
+      }
+    }
+  }
+  return *this;
+}
+
+
+Image& Image::encodeMessage(const char* message){
+  uint32_t len = strlen(message) * 8;
+
+  if(len + STEG_HEADER_SIZE > size){
+    printf("\e[31m[ERROR] This message is too large (%lu bits / %zu bits)\e[0m\n", len+STEG_HEADER_SIZE, size);
+    return *this;
+  }
+
+  for(uint8_t i = 0; i < STEG_HEADER_SIZE; i++){
+    data[i] &= 0xFE;
+    data[i] |= (len >> (STEG_HEADER_SIZE - 1 - i)) & 1UL;
+  }
+
+  for(uint32_t i = 0; i < len; i++){
+    data[i+STEG_HEADER_SIZE] &= 0xFE;
+    data[i+STEG_HEADER_SIZE] |= (message[i/8] >> ((len-1-i)%8)) & 1;
+  }
+
+  return *this;
+}
+Image& Image::decodeMessage(char* buffer, size_t* messageLength){
+  uint32_t len = 0;
+  for(uint8_t i = 0; i < STEG_HEADER_SIZE; i++){
+    len = (len << 1) | (data[i] & 1);
+  }
+  *messageLength = len / 8;
+
+  for(uint32_t i = 0; i < len; i++){
+    buffer[i/8] = (buffer[i/8] << 1) | (data[i+STEG_HEADER_SIZE] & 1);
+  }
+
+  return *this;
+}
 
 
 
