@@ -1,5 +1,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define BYTE_BOUND(value) value < 0 ? 0 : (value > 255 ? 255 : value)
 #include "Image.h"
 #include "stb_image.h"
 #include "stb_image_write.h"
@@ -68,6 +69,96 @@ ImageType Image::getFileType(const char* filename){
   return PNG;
 }
 
+Image& Image::std_convolve_clamp_to_0(uint8_t channel, uint32_t ker_w, uint32_t ker_h, double ker[], uint32_t cr, uint32_t cc) {
+	uint8_t new_data[w*h];
+	uint64_t center = cr*ker_w + cc;
+	for(uint64_t k=channel; k<size; k+=channels) {
+		double c = 0;
+		for(long i = -((long)cr); i<(long)ker_h-cr; ++i) {
+			long row = ((long)k/channels)/w-i;
+			if(row < 0 || row > h-1) {
+				continue;
+			}
+			for(long j = -((long)cc); j<(long)ker_w-cc; ++j) {
+				long col = ((long)k/channels)%w-j;
+				if(col < 0 || col > w-1) {
+					continue;
+				}
+				c += ker[center+i*(long)ker_w+j]*data[(row*w+col)*channels+channel];
+			}
+		}
+		new_data[k/channels] = (uint8_t)BYTE_BOUND(round(c));
+	}
+	for(uint64_t k=channel; k<size; k+=channels) {
+		data[k] = new_data[k/channels];
+	}
+	return *this;
+}
+
+Image& Image::std_convolve_clamp_to_border(uint8_t channel, uint32_t ker_w, uint32_t ker_h, double ker[], uint32_t cr, uint32_t cc) {
+	uint8_t new_data[w*h];
+	uint64_t center = cr*ker_w + cc;
+	for(uint64_t k=channel; k<size; k+=channels) {
+		double c = 0;
+		for(long i = -((long)cr); i<(long)ker_h-cr; ++i) {
+			long row = ((long)k/channels)/w-i;
+			if(row < 0) {
+				row = 0;
+			}
+      else if(row > h-1){
+        row = h-1;
+      }
+			for(long j = -((long)cc); j<(long)ker_w-cc; ++j) {
+				long col = ((long)k/channels)%w-j;
+        if(col < 0) {
+          col = 0;
+        }
+        else if(col > w-1){
+          col = w-1;
+        }
+				c += ker[center+i*(long)ker_w+j]*data[(row*w+col)*channels+channel];
+			}
+		}
+		new_data[k/channels] = (uint8_t)BYTE_BOUND(round(c));
+	}
+	for(uint64_t k=channel; k<size; k+=channels) {
+		data[k] = new_data[k/channels];
+	}
+	return *this;
+}
+
+Image& Image::std_convolve_cyclic(uint8_t channel, uint32_t ker_w, uint32_t ker_h, double ker[], uint32_t cr, uint32_t cc) {
+	uint8_t new_data[w*h];
+	uint64_t center = cr*ker_w + cc;
+	for(uint64_t k=channel; k<size; k+=channels) {
+		double c = 0;
+		for(long i = -((long)cr); i<(long)ker_h-cr; ++i) {
+			long row = ((long)k/channels)/w-i;
+			if(row < 0) {
+				row = row%h + h;
+			}
+			else if(row > h-1) {
+				row %= h;
+			}
+			for(long j = -((long)cc); j<(long)ker_w-cc; ++j) {
+				long col = ((long)k/channels)%w-j;
+				if(col < 0) {
+					col = col%w + w;
+				}
+				else if(col > w-1) {
+					col %= w;
+				}
+				c += ker[center+i*(long)ker_w+j]*data[(row*w+col)*channels+channel];
+			}
+		}
+		new_data[k/channels] = (uint8_t)BYTE_BOUND(round(c));
+	}
+	for(uint64_t k=channel; k<size; k+=channels) {
+		data[k] = new_data[k/channels];
+	}
+	return *this;
+}
+
 Image& Image::grayscale_avg(){
   if(channels < 3){
     printf("Image %p has less than 3 channels. Assumed to be grayscale. Nothing to be done", this);
@@ -94,6 +185,40 @@ Image& Image::grayscale_lum(){
   return *this;
 }
 
+Image& Image::diffmap(Image& img) {
+	int compare_width = fmin(w,img.w);
+	int compare_height = fmin(h,img.h);
+	int compare_channels = fmin(channels,img.channels);
+	for(uint32_t i=0; i<compare_height; ++i) {
+		for(uint32_t j=0; j<compare_width; ++j) {
+			for(uint8_t k=0; k<compare_channels; ++k) {
+				data[(i*w+j)*channels+k] = BYTE_BOUND(abs(data[(i*w+j)*channels+k] - img.data[(i*img.w+j)*img.channels+k]));
+			}
+		}
+	}
+	return *this;
+}
+
+Image& Image::diffmap_scale(Image& img, uint8_t scl) {
+	int compare_width = fmin(w,img.w);
+	int compare_height = fmin(h,img.h);
+	int compare_channels = fmin(channels,img.channels);
+	uint8_t largest = 0;
+	for(uint32_t i=0; i<compare_height; ++i) {
+		for(uint32_t j=0; j<compare_width; ++j) {
+			for(uint8_t k=0; k<compare_channels; ++k) {
+				data[(i*w+j)*channels+k] = BYTE_BOUND(abs(data[(i*w+j)*channels+k] - img.data[(i*img.w+j)*img.channels+k]));
+				largest = fmax(largest, data[(i*w+j)*channels+k]);
+			}
+		}
+	}
+	scl = 255/fmax(1, fmax(scl, largest));
+	for(int i=0; i<size; ++i) {
+		data[i] *= scl;
+	}
+	return *this;
+}
+
 Image& Image::colorMask(float r, float g, float b){
   if(channels < 3){
     printf("\e[31m[ERROR] color maskr requires at least 3 channels, but this image has %d channels \e[0m\n", channels);
@@ -107,34 +232,6 @@ Image& Image::colorMask(float r, float g, float b){
   }
   return *this;
 }
-
-
-Image& Image::sharp(){
-  if(channels < 3){
-    printf("\e[31m[ERROR] color maskr requires at least 3 channels, but this image has %d channels \e[0m\n", channels);
-  }
-  else{
-    int i = 0;
-    for(int y = 0; y < h; y++){
-      for(int x = 0; x < w; x++){
-        if(y < 100){
-          int red = data[i];
-          int green = data[i+i];
-          int blue = data[i+2];
-          red += data[i+channels];
-          green += data[i+channels+1];
-          blue += data[i+channels+2];
-          data[i] = red/2;
-          data[i+1] = green/2;
-          data[i+2] = blue/2;
-        }
-        i+=channels;
-      }
-    }
-  }
-  return *this;
-}
-
 
 Image& Image::encodeMessage(const char* message){
   uint32_t len = strlen(message) * 8;

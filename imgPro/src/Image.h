@@ -24,12 +24,17 @@ struct Image {
   
   ImageType getFileType(const char* filename);
 
+  Image& std_convolve_clamp_to_0(uint8_t channel, uint32_t ker_w, uint32_t ker_h, double ker[], uint32_t cr, uint32_t cc);
+  Image& std_convolve_clamp_to_border(uint8_t channel, uint32_t ker_w, uint32_t ker_h, double ker[], uint32_t cr, uint32_t cc);
+  Image& std_convolve_cyclic(uint8_t channel, uint32_t ker_w, uint32_t ker_h, double ker[], uint32_t cr, uint32_t cc);
+
   Image& grayscale_avg();
   Image& grayscale_lum();
 
-  Image& colorMask(float r, float g, float b);
+  Image& diffmap(Image& img);
+  Image& diffmap_scale(Image& img, uint8_t scl = 0);
 
-  Image& sharp();
+  Image& colorMask(float r, float g, float b);
 
   Image& encodeMessage(const char* message);
   Image& decodeMessage(char* buffer, size_t* messageLength);
