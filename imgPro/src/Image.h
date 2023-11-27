@@ -39,6 +39,12 @@ struct Image {
   Image& encodeMessage(const char* message);
   Image& decodeMessage(char* buffer, size_t* messageLength);
 
+  Image& flipX();
+  Image& flipY();
+
+  Image& overlay(const Image& source, int x, int y);
+
+  Image& crop(uint16_t cx, uint16_t cy, uint16_t cw, uint16_t ch);
 
 };
 
